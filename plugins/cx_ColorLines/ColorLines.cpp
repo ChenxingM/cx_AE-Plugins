@@ -209,18 +209,20 @@ PF_Boolean IsTargetColor8(PF_Pixel8 *pixel, PF_Pixel *targetColor, PF_FpLong tol
 }
 
 PF_Boolean IsTargetColor16(PF_Pixel16 *pixel, PF_Pixel *targetColor, PF_FpLong tolerance) {
-	PF_FpLong targetR = targetColor->red * 128.0;
-	PF_FpLong targetG = targetColor->green * 128.0;
-	PF_FpLong targetB = targetColor->blue * 128.0;
-	PF_FpLong maxDist = tolerance * 4.4167 * 128.0;
+	const PF_FpLong scale8to16 = PF_MAX_CHAN16 / 255.0;
+	PF_FpLong targetR = targetColor->red * scale8to16;
+	PF_FpLong targetG = targetColor->green * scale8to16;
+	PF_FpLong targetB = targetColor->blue * scale8to16;
+	PF_FpLong maxDist = tolerance * 4.4167 * scale8to16;
 	return IsTargetColor16Fast(pixel, targetR, targetG, targetB, maxDist * maxDist);
 }
 
 PF_Boolean IsTargetColorFloat(PF_PixelFloat *pixel, PF_Pixel *targetColor, PF_FpLong tolerance) {
-	PF_FpLong targetR = targetColor->red / 255.0;
-	PF_FpLong targetG = targetColor->green / 255.0;
-	PF_FpLong targetB = targetColor->blue / 255.0;
-	PF_FpLong maxDist = tolerance * 0.01732;
+	const PF_FpLong scale8toFloat = 1.0 / 255.0;
+	PF_FpLong targetR = targetColor->red * scale8toFloat;
+	PF_FpLong targetG = targetColor->green * scale8toFloat;
+	PF_FpLong targetB = targetColor->blue * scale8toFloat;
+	PF_FpLong maxDist = tolerance * 4.4167 * scale8toFloat;
 	return IsTargetColorFloatFast(pixel, targetR, targetG, targetB, maxDist * maxDist);
 }
 
@@ -682,18 +684,21 @@ static void InitProcessingContext(ProcessingContext *ctx, ColorLinesInfo *info) 
 	PF_FpLong maxDist8 = info->tolerance * 4.4167;
 	ctx->toleranceSq8 = maxDist8 * maxDist8;
 
-	// 16-bit targets
-	ctx->targetR16 = info->targetColor.red * 128.0;
-	ctx->targetG16 = info->targetColor.green * 128.0;
-	ctx->targetB16 = info->targetColor.blue * 128.0;
-	PF_FpLong maxDist16 = info->tolerance * 4.4167 * 128.0;
+	// 16-bit targets (8-bit 0-255 -> 16-bit 0-32768)
+	// Correct conversion factor: PF_MAX_CHAN16 / 255.0 = 32768 / 255.0 ≈ 128.502
+	const PF_FpLong scale8to16 = PF_MAX_CHAN16 / 255.0;
+	ctx->targetR16 = info->targetColor.red * scale8to16;
+	ctx->targetG16 = info->targetColor.green * scale8to16;
+	ctx->targetB16 = info->targetColor.blue * scale8to16;
+	PF_FpLong maxDist16 = info->tolerance * 4.4167 * scale8to16;
 	ctx->toleranceSq16 = maxDist16 * maxDist16;
 
-	// Float targets
-	ctx->targetRF = info->targetColor.red / 255.0;
-	ctx->targetGF = info->targetColor.green / 255.0;
-	ctx->targetBF = info->targetColor.blue / 255.0;
-	PF_FpLong maxDistF = info->tolerance * 0.01732;
+	// Float targets (8-bit 0-255 -> float 0.0-1.0)
+	const PF_FpLong scale8toFloat = 1.0 / 255.0;
+	ctx->targetRF = info->targetColor.red * scale8toFloat;
+	ctx->targetGF = info->targetColor.green * scale8toFloat;
+	ctx->targetBF = info->targetColor.blue * scale8toFloat;
+	PF_FpLong maxDistF = info->tolerance * 4.4167 * scale8toFloat;
 	ctx->toleranceSqF = maxDistF * maxDistF;
 
 	// Color adjustments
