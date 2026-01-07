@@ -177,53 +177,40 @@ static void HSLtoRGB(PF_FpLong h, PF_FpLong s, PF_FpLong l, PF_FpLong *r, PF_FpL
 // Optimized Color Matching - Use squared distance
 // ============================================================================
 
-// Precompute tolerance squared: maxDistance = tolerance * 4.4167, store maxDistanceSq
-static inline PF_Boolean IsTargetColor8Fast(PF_Pixel8 *pixel, A_long targetR, A_long targetG, A_long targetB, PF_FpLong toleranceSq) {
+// All color matching is done in 8-bit space to match AE color picker behavior
+static inline PF_Boolean IsTargetColor8Fast(PF_Pixel8 *pixel, A_long targetR, A_long targetG, A_long targetB, A_long toleranceSq) {
 	A_long dr = (A_long)pixel->red - targetR;
 	A_long dg = (A_long)pixel->green - targetG;
 	A_long db = (A_long)pixel->blue - targetB;
 	A_long distSq = dr * dr + dg * dg + db * db;
-	return ((PF_FpLong)distSq <= toleranceSq);
-}
-
-static inline PF_Boolean IsTargetColor16Fast(PF_Pixel16 *pixel, PF_FpLong targetR, PF_FpLong targetG, PF_FpLong targetB, PF_FpLong toleranceSq) {
-	PF_FpLong dr = (PF_FpLong)pixel->red - targetR;
-	PF_FpLong dg = (PF_FpLong)pixel->green - targetG;
-	PF_FpLong db = (PF_FpLong)pixel->blue - targetB;
-	PF_FpLong distSq = dr * dr + dg * dg + db * db;
 	return (distSq <= toleranceSq);
 }
 
-static inline PF_Boolean IsTargetColorFloatFast(PF_PixelFloat *pixel, PF_FpLong targetR, PF_FpLong targetG, PF_FpLong targetB, PF_FpLong toleranceSq) {
-	PF_FpLong dr = pixel->red - targetR;
-	PF_FpLong dg = pixel->green - targetG;
-	PF_FpLong db = pixel->blue - targetB;
-	PF_FpLong distSq = dr * dr + dg * dg + db * db;
-	return (distSq <= toleranceSq);
+// 16-bit version: convert 16-bit pixel to 8-bit space for comparison
+static inline PF_Boolean IsTargetColor16Fast(PF_Pixel16 *pixel, A_long targetR8, A_long targetG8, A_long targetB8, A_long toleranceSq8) {
+	A_long r8 = (A_long)((double)pixel->red / PF_MAX_CHAN16 * PF_MAX_CHAN8 + 0.5);
+	A_long g8 = (A_long)((double)pixel->green / PF_MAX_CHAN16 * PF_MAX_CHAN8 + 0.5);
+	A_long b8 = (A_long)((double)pixel->blue / PF_MAX_CHAN16 * PF_MAX_CHAN8 + 0.5);
+	A_long dr = r8 - targetR8;
+	A_long dg = g8 - targetG8;
+	A_long db = b8 - targetB8;
+	A_long distSq = dr * dr + dg * dg + db * db;
+	return (distSq <= toleranceSq8);
 }
 
-// Legacy functions for compatibility
-PF_Boolean IsTargetColor8(PF_Pixel8 *pixel, PF_Pixel *targetColor, PF_FpLong tolerance) {
-	PF_FpLong maxDist = tolerance * 4.4167;
-	return IsTargetColor8Fast(pixel, targetColor->red, targetColor->green, targetColor->blue, maxDist * maxDist);
-}
-
-PF_Boolean IsTargetColor16(PF_Pixel16 *pixel, PF_Pixel *targetColor, PF_FpLong tolerance) {
-	const PF_FpLong scale8to16 = PF_MAX_CHAN16 / 255.0;
-	PF_FpLong targetR = targetColor->red * scale8to16;
-	PF_FpLong targetG = targetColor->green * scale8to16;
-	PF_FpLong targetB = targetColor->blue * scale8to16;
-	PF_FpLong maxDist = tolerance * 4.4167 * scale8to16;
-	return IsTargetColor16Fast(pixel, targetR, targetG, targetB, maxDist * maxDist);
-}
-
-PF_Boolean IsTargetColorFloat(PF_PixelFloat *pixel, PF_Pixel *targetColor, PF_FpLong tolerance) {
-	const PF_FpLong scale8toFloat = 1.0 / 255.0;
-	PF_FpLong targetR = targetColor->red * scale8toFloat;
-	PF_FpLong targetG = targetColor->green * scale8toFloat;
-	PF_FpLong targetB = targetColor->blue * scale8toFloat;
-	PF_FpLong maxDist = tolerance * 4.4167 * scale8toFloat;
-	return IsTargetColorFloatFast(pixel, targetR, targetG, targetB, maxDist * maxDist);
+// 32-bit float: convert to 8-bit space for comparison
+static inline PF_Boolean IsTargetColorFloatFast(PF_PixelFloat *pixel, A_long targetR8, A_long targetG8, A_long targetB8, A_long toleranceSq8) {
+	A_long r8 = (A_long)(pixel->red * 255.0 + 0.5);
+	A_long g8 = (A_long)(pixel->green * 255.0 + 0.5);
+	A_long b8 = (A_long)(pixel->blue * 255.0 + 0.5);
+	if (r8 < 0) r8 = 0; else if (r8 > 255) r8 = 255;
+	if (g8 < 0) g8 = 0; else if (g8 > 255) g8 = 255;
+	if (b8 < 0) b8 = 0; else if (b8 > 255) b8 = 255;
+	A_long dr = r8 - targetR8;
+	A_long dg = g8 - targetG8;
+	A_long db = b8 - targetB8;
+	A_long distSq = dr * dr + dg * dg + db * db;
+	return (distSq <= toleranceSq8);
 }
 
 // ============================================================================
@@ -352,31 +339,12 @@ static inline void ApplyColorAdjustmentsFloatFast(PF_PixelFloat *pixel, const Co
 	pixel->blue = (PF_FpShort)b;
 }
 
-// Legacy wrappers
-void ApplyColorAdjustments8(PF_Pixel8 *pixel, ColorLinesInfo *info) {
-	ColorAdjustParams adj;
-	InitColorAdjustParams(&adj, info);
-	ApplyColorAdjustments8Fast(pixel, &adj);
-}
-
-void ApplyColorAdjustments16(PF_Pixel16 *pixel, ColorLinesInfo *info) {
-	ColorAdjustParams adj;
-	InitColorAdjustParams(&adj, info);
-	ApplyColorAdjustments16Fast(pixel, &adj);
-}
-
-void ApplyColorAdjustmentsFloat(PF_PixelFloat *pixel, ColorLinesInfo *info) {
-	ColorAdjustParams adj;
-	InitColorAdjustParams(&adj, info);
-	ApplyColorAdjustmentsFloatFast(pixel, &adj);
-}
-
 // ============================================================================
 // Optimized Fill Functions
 // ============================================================================
 
 static void FillLinePixel8(ColorLinesInfo *info, A_long x, A_long y, PF_Pixel8 *inP, PF_Pixel8 *outP,
-                           A_long targetR, A_long targetG, A_long targetB, PF_FpLong toleranceSq,
+                           A_long targetR, A_long targetG, A_long targetB, A_long toleranceSq,
                            const ColorAdjustParams *adj) {
 	A_long radius = info->searchRadius;
 	A_long width = info->srcWorld->width;
@@ -472,7 +440,7 @@ static void FillLinePixel8(ColorLinesInfo *info, A_long x, A_long y, PF_Pixel8 *
 }
 
 static void FillLinePixel16(ColorLinesInfo *info, A_long x, A_long y, PF_Pixel16 *inP, PF_Pixel16 *outP,
-                            PF_FpLong targetR, PF_FpLong targetG, PF_FpLong targetB, PF_FpLong toleranceSq,
+                            A_long targetR8, A_long targetG8, A_long targetB8, A_long toleranceSq8,
                             const ColorAdjustParams *adj) {
 	A_long radius = info->searchRadius;
 	A_long width = info->srcWorld->width;
@@ -501,7 +469,7 @@ static void FillLinePixel16(ColorLinesInfo *info, A_long x, A_long y, PF_Pixel16
 
 					PF_Pixel16 *neighbor = rowPtr + nx;
 					if (info->ignoreTransparent && neighbor->alpha < PF_MAX_CHAN16) continue;
-					if (IsTargetColor16Fast(neighbor, targetR, targetG, targetB, toleranceSq)) continue;
+					if (IsTargetColor16Fast(neighbor, targetR8, targetG8, targetB8, toleranceSq8)) continue;
 
 					A_long distSq = dx * dx + dy * dy;
 					if (distSq < nearestDistSq) {
@@ -539,7 +507,7 @@ static void FillLinePixel16(ColorLinesInfo *info, A_long x, A_long y, PF_Pixel16
 
 				PF_Pixel16 *neighbor = rowPtr + nx;
 				if (info->ignoreTransparent && neighbor->alpha < PF_MAX_CHAN16) continue;
-				if (IsTargetColor16Fast(neighbor, targetR, targetG, targetB, toleranceSq)) continue;
+				if (IsTargetColor16Fast(neighbor, targetR8, targetG8, targetB8, toleranceSq8)) continue;
 
 				PF_FpLong weight = isAverage ? 1.0 : g_invDistWeights[weightRowOffset + dx + radius];
 				sumR += neighbor->red * weight;
@@ -564,7 +532,7 @@ static void FillLinePixel16(ColorLinesInfo *info, A_long x, A_long y, PF_Pixel16
 }
 
 static void FillLinePixelFloat(ColorLinesInfo *info, A_long x, A_long y, PF_PixelFloat *inP, PF_PixelFloat *outP,
-                               PF_FpLong targetR, PF_FpLong targetG, PF_FpLong targetB, PF_FpLong toleranceSq,
+                               A_long targetR8, A_long targetG8, A_long targetB8, A_long toleranceSq8,
                                const ColorAdjustParams *adj) {
 	A_long radius = info->searchRadius;
 	A_long width = info->srcWorld->width;
@@ -593,7 +561,7 @@ static void FillLinePixelFloat(ColorLinesInfo *info, A_long x, A_long y, PF_Pixe
 
 					PF_PixelFloat *neighbor = rowPtr + nx;
 					if (info->ignoreTransparent && neighbor->alpha < 1.0f) continue;
-					if (IsTargetColorFloatFast(neighbor, targetR, targetG, targetB, toleranceSq)) continue;
+					if (IsTargetColorFloatFast(neighbor, targetR8, targetG8, targetB8, toleranceSq8)) continue;
 
 					A_long distSq = dx * dx + dy * dy;
 					if (distSq < nearestDistSq) {
@@ -631,7 +599,7 @@ static void FillLinePixelFloat(ColorLinesInfo *info, A_long x, A_long y, PF_Pixe
 
 				PF_PixelFloat *neighbor = rowPtr + nx;
 				if (info->ignoreTransparent && neighbor->alpha < 1.0f) continue;
-				if (IsTargetColorFloatFast(neighbor, targetR, targetG, targetB, toleranceSq)) continue;
+				if (IsTargetColorFloatFast(neighbor, targetR8, targetG8, targetB8, toleranceSq8)) continue;
 
 				PF_FpLong weight = isAverage ? 1.0 : g_invDistWeights[weightRowOffset + dx + radius];
 				sumR += neighbor->red * weight;
@@ -661,11 +629,9 @@ static void FillLinePixelFloat(ColorLinesInfo *info, A_long x, A_long y, PF_Pixe
 
 typedef struct {
 	ColorLinesInfo *info;
-	// Precomputed target color (converted for bit depth)
+	// All bit depths use 8-bit color space for comparison
 	A_long targetR8, targetG8, targetB8;
-	PF_FpLong targetR16, targetG16, targetB16;
-	PF_FpLong targetRF, targetGF, targetBF;
-	PF_FpLong toleranceSq8, toleranceSq16, toleranceSqF;
+	A_long toleranceSq8;
 	ColorAdjustParams colorAdj;
 	A_long edgeMargin;
 	A_long width, height;
@@ -677,29 +643,12 @@ static void InitProcessingContext(ProcessingContext *ctx, ColorLinesInfo *info) 
 	ctx->width = info->srcWorld->width;
 	ctx->height = info->srcWorld->height;
 
-	// 8-bit targets
+	// All bit depths use 8-bit target color (matches AE color picker)
 	ctx->targetR8 = info->targetColor.red;
 	ctx->targetG8 = info->targetColor.green;
 	ctx->targetB8 = info->targetColor.blue;
-	PF_FpLong maxDist8 = info->tolerance * 4.4167;
+	A_long maxDist8 = (A_long)(info->tolerance * 4.4167 + 0.5);
 	ctx->toleranceSq8 = maxDist8 * maxDist8;
-
-	// 16-bit targets (8-bit 0-255 -> 16-bit 0-32768)
-	// Correct conversion factor: PF_MAX_CHAN16 / 255.0 = 32768 / 255.0 ≈ 128.502
-	const PF_FpLong scale8to16 = PF_MAX_CHAN16 / 255.0;
-	ctx->targetR16 = info->targetColor.red * scale8to16;
-	ctx->targetG16 = info->targetColor.green * scale8to16;
-	ctx->targetB16 = info->targetColor.blue * scale8to16;
-	PF_FpLong maxDist16 = info->tolerance * 4.4167 * scale8to16;
-	ctx->toleranceSq16 = maxDist16 * maxDist16;
-
-	// Float targets (8-bit 0-255 -> float 0.0-1.0)
-	const PF_FpLong scale8toFloat = 1.0 / 255.0;
-	ctx->targetRF = info->targetColor.red * scale8toFloat;
-	ctx->targetGF = info->targetColor.green * scale8toFloat;
-	ctx->targetBF = info->targetColor.blue * scale8toFloat;
-	PF_FpLong maxDistF = info->tolerance * 4.4167 * scale8toFloat;
-	ctx->toleranceSqF = maxDistF * maxDistF;
 
 	// Color adjustments
 	InitColorAdjustParams(&ctx->colorAdj, info);
@@ -778,20 +727,20 @@ static PF_Err FillAndMask16_Optimized(void *refcon, A_long xL, A_long yL, PF_Pix
 		return PF_Err_NONE;
 	}
 
-	PF_Boolean isLine = IsTargetColor16Fast(inP, ctx->targetR16, ctx->targetG16, ctx->targetB16, ctx->toleranceSq16);
+	PF_Boolean isLine = IsTargetColor16Fast(inP, ctx->targetR8, ctx->targetG8, ctx->targetB8, ctx->toleranceSq8);
 	SetMaskAtFast(info, xL, yL, isLine ? 255 : 0);
 
 	switch (info->outputMode) {
 		case OUTPUT_MODE_FULL:
 			if (isLine) {
-				FillLinePixel16(info, xL, yL, inP, outP, ctx->targetR16, ctx->targetG16, ctx->targetB16, ctx->toleranceSq16, &ctx->colorAdj);
+				FillLinePixel16(info, xL, yL, inP, outP, ctx->targetR8, ctx->targetG8, ctx->targetB8, ctx->toleranceSq8, &ctx->colorAdj);
 			} else {
 				*outP = *inP;
 			}
 			break;
 		case OUTPUT_MODE_LINE_ONLY:
 			if (isLine) {
-				FillLinePixel16(info, xL, yL, inP, outP, ctx->targetR16, ctx->targetG16, ctx->targetB16, ctx->toleranceSq16, &ctx->colorAdj);
+				FillLinePixel16(info, xL, yL, inP, outP, ctx->targetR8, ctx->targetG8, ctx->targetB8, ctx->toleranceSq8, &ctx->colorAdj);
 				outP->alpha = PF_MAX_CHAN16;
 			} else {
 				outP->alpha = 0;
@@ -829,20 +778,20 @@ static PF_Err FillAndMaskFloat_Optimized(void *refcon, A_long xL, A_long yL, PF_
 		return PF_Err_NONE;
 	}
 
-	PF_Boolean isLine = IsTargetColorFloatFast(inP, ctx->targetRF, ctx->targetGF, ctx->targetBF, ctx->toleranceSqF);
+	PF_Boolean isLine = IsTargetColorFloatFast(inP, ctx->targetR8, ctx->targetG8, ctx->targetB8, ctx->toleranceSq8);
 	SetMaskAtFast(info, xL, yL, isLine ? 255 : 0);
 
 	switch (info->outputMode) {
 		case OUTPUT_MODE_FULL:
 			if (isLine) {
-				FillLinePixelFloat(info, xL, yL, inP, outP, ctx->targetRF, ctx->targetGF, ctx->targetBF, ctx->toleranceSqF, &ctx->colorAdj);
+				FillLinePixelFloat(info, xL, yL, inP, outP, ctx->targetR8, ctx->targetG8, ctx->targetB8, ctx->toleranceSq8, &ctx->colorAdj);
 			} else {
 				*outP = *inP;
 			}
 			break;
 		case OUTPUT_MODE_LINE_ONLY:
 			if (isLine) {
-				FillLinePixelFloat(info, xL, yL, inP, outP, ctx->targetRF, ctx->targetGF, ctx->targetBF, ctx->toleranceSqF, &ctx->colorAdj);
+				FillLinePixelFloat(info, xL, yL, inP, outP, ctx->targetR8, ctx->targetG8, ctx->targetB8, ctx->toleranceSq8, &ctx->colorAdj);
 				outP->alpha = 1.0f;
 			} else {
 				outP->alpha = 0;
@@ -1170,6 +1119,7 @@ static PF_Err PreRender(PF_InData *in_dataP, PF_OutData *out_dataP, PF_PreRender
 			if (!err) infoP->outputMode = param.u.pd.value;
 
 			if (!err) {
+				req.field = PF_Field_FRAME;
 				err = extraP->cb->checkout_layer(in_dataP->effect_ref, COLORLINES_INPUT, COLORLINES_INPUT, &req, in_dataP->current_time, in_dataP->time_step, in_dataP->time_scale, &in_result);
 			}
 			if (!err) {

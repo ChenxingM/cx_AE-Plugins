@@ -200,20 +200,4 @@ typedef struct {
 } PF_Pixel_BGRA_32f;
 
 
-// ============ 8-bit functions ============
-PF_Boolean IsTargetColor8(PF_Pixel8 *pixel, PF_Pixel *targetColor, PF_FpLong tolerance);
-void ApplyColorAdjustments8(PF_Pixel8 *pixel, ColorLinesInfo *info);
-
-// ============ 16-bit functions ============
-PF_Boolean IsTargetColor16(PF_Pixel16 *pixel, PF_Pixel *targetColor, PF_FpLong tolerance);
-void ApplyColorAdjustments16(PF_Pixel16 *pixel, ColorLinesInfo *info);
-
-// ============ 32-bit float functions ============
-PF_Boolean IsTargetColorFloat(PF_PixelFloat *pixel, PF_Pixel *targetColor, PF_FpLong tolerance);
-void ApplyColorAdjustmentsFloat(PF_PixelFloat *pixel, ColorLinesInfo *info);
-
-// RGB <-> HSL conversion (normalized 0-1 range)
-void RGBtoHSL(PF_FpLong r, PF_FpLong g, PF_FpLong b, PF_FpLong *h, PF_FpLong *s, PF_FpLong *l);
-void HSLtoRGB(PF_FpLong h, PF_FpLong s, PF_FpLong l, PF_FpLong *r, PF_FpLong *g, PF_FpLong *b);
-
 #endif // COLOR_LINES_H
