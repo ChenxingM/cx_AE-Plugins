@@ -76,6 +76,61 @@ static inline void CX_UnionLRect(const PF_LRect *src, PF_LRect *dst) {
 }
 
 // ============================================================================
+// Color Matching Functions (all operate in 8-bit space for AE color picker compatibility)
+// ============================================================================
+
+// Tolerance scale factor: tolerance 0-100 maps to color distance in RGB space
+// sqrt(255^2 * 3) ≈ 441.67, so tolerance 100 = full range
+constexpr PF_FpLong CX_TOLERANCE_SCALE = 4.4167;
+
+// 8-bit color matching
+static inline PF_Boolean CX_IsTargetColor8(const PF_Pixel8* pixel,
+                                            A_long targetR, A_long targetG, A_long targetB,
+                                            A_long toleranceSq) {
+    A_long dr = static_cast<A_long>(pixel->red) - targetR;
+    A_long dg = static_cast<A_long>(pixel->green) - targetG;
+    A_long db = static_cast<A_long>(pixel->blue) - targetB;
+    A_long distSq = dr * dr + dg * dg + db * db;
+    return (distSq <= toleranceSq);
+}
+
+// 16-bit color matching (converts to 8-bit space for comparison)
+static inline PF_Boolean CX_IsTargetColor16(const PF_Pixel16* pixel,
+                                             A_long targetR8, A_long targetG8, A_long targetB8,
+                                             A_long toleranceSq8) {
+    // Precise conversion: 16-bit (0-32768) to 8-bit (0-255)
+    A_long r8 = static_cast<A_long>(static_cast<double>(pixel->red) / PF_MAX_CHAN16 * PF_MAX_CHAN8 + 0.5);
+    A_long g8 = static_cast<A_long>(static_cast<double>(pixel->green) / PF_MAX_CHAN16 * PF_MAX_CHAN8 + 0.5);
+    A_long b8 = static_cast<A_long>(static_cast<double>(pixel->blue) / PF_MAX_CHAN16 * PF_MAX_CHAN8 + 0.5);
+    A_long dr = r8 - targetR8;
+    A_long dg = g8 - targetG8;
+    A_long db = b8 - targetB8;
+    A_long distSq = dr * dr + dg * dg + db * db;
+    return (distSq <= toleranceSq8);
+}
+
+// 32-bit float color matching (converts to 8-bit space for comparison)
+static inline PF_Boolean CX_IsTargetColorFloat(const PF_PixelFloat* pixel,
+                                                A_long targetR8, A_long targetG8, A_long targetB8,
+                                                A_long toleranceSq8) {
+    // Float (0.0-1.0) to 8-bit (0-255) with clamping
+    A_long r8 = static_cast<A_long>(CX_CLAMP(pixel->red, 0.0f, 1.0f) * 255.0f + 0.5f);
+    A_long g8 = static_cast<A_long>(CX_CLAMP(pixel->green, 0.0f, 1.0f) * 255.0f + 0.5f);
+    A_long b8 = static_cast<A_long>(CX_CLAMP(pixel->blue, 0.0f, 1.0f) * 255.0f + 0.5f);
+    A_long dr = r8 - targetR8;
+    A_long dg = g8 - targetG8;
+    A_long db = b8 - targetB8;
+    A_long distSq = dr * dr + dg * dg + db * db;
+    return (distSq <= toleranceSq8);
+}
+
+// Helper to precompute squared tolerance from 0-100 scale
+static inline A_long CX_ToleranceToDistSq(PF_FpLong tolerance) {
+    A_long maxDist = static_cast<A_long>(tolerance * CX_TOLERANCE_SCALE + 0.5);
+    return maxDist * maxDist;
+}
+
+// ============================================================================
 // RGB <-> HSL Conversion
 // ============================================================================
 
